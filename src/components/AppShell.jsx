@@ -7,12 +7,14 @@ const navItems = {
     { href: "/admin/users", label: "Users" },
     { href: "/admin/orders", label: "Orders" },
     { href: "/admin/categories", label: "Categories" },
+    { href: "/admin/offers", label: "Offers" },
   ],
   seller: [
     { href: "/seller/dashboard", label: "Dashboard" },
     { href: "/seller/restaurant", label: "Restaurant" },
     { href: "/seller/menus", label: "Menus" },
     { href: "/seller/orders", label: "Orders" },
+    { href: "/seller/promotions", label: "Promotions" },
   ],
 };
 
