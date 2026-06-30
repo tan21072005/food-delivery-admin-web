@@ -1,5 +1,22 @@
 import { createClient } from "@/lib/supabase/server";
 
+export function splitRestaurantAddress(address) {
+  if (!address) {
+    return { addressDetail: "", locality: "" };
+  }
+
+  const parts = address.split(",").map((part) => part.trim()).filter(Boolean);
+
+  if (parts.length <= 1) {
+    return { addressDetail: address, locality: "" };
+  }
+
+  return {
+    addressDetail: parts.slice(0, -2).join(", ") || parts[0],
+    locality: parts.slice(-2).join(", "),
+  };
+}
+
 function getTodayBounds(timeZone = "Asia/Ho_Chi_Minh") {
   const now = new Date();
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -24,6 +41,39 @@ function sumAmounts(rows) {
   return rows.reduce((total, row) => total + Number(row.total_amount ?? 0), 0);
 }
 
+function cleanText(value) {
+  const text = value?.toString().trim();
+  return text || null;
+}
+
+function combineAddress(addressDetail, locality) {
+  return [cleanText(addressDetail), cleanText(locality)].filter(Boolean).join(", ");
+}
+
+async function getRestaurantOwnerUser(supabase) {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return { appUser: null, error: userError ?? new Error("Not authenticated") };
+  }
+
+  const { data: appUser, error } = await supabase
+    .from("users")
+    .select("id, role")
+    .eq("auth_uid", user.id)
+    .eq("role", "restaurant_owner")
+    .maybeSingle();
+
+  if (error || !appUser) {
+    return { appUser: null, error: error ?? new Error("Authenticated user is not a restaurant owner") };
+  }
+
+  return { appUser, error: null };
+}
+
 export async function getSellerRestaurant() {
   const supabase = await createClient();
 
@@ -31,28 +81,10 @@ export async function getSellerRestaurant() {
     return { restaurant: null, error: null, isConfigured: false };
   }
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const { appUser, error: ownerError } = await getRestaurantOwnerUser(supabase);
 
-  if (userError || !user) {
-    return { restaurant: null, error: userError ?? new Error("Not authenticated"), isConfigured: true };
-  }
-
-  const { data: appUser, error: appUserError } = await supabase
-    .from("users")
-    .select("id, role")
-    .eq("auth_uid", user.id)
-    .eq("role", "restaurant_owner")
-    .maybeSingle();
-
-  if (appUserError || !appUser) {
-    return {
-      restaurant: null,
-      error: appUserError ?? new Error("Authenticated user is not a restaurant owner"),
-      isConfigured: true,
-    };
+  if (ownerError || !appUser) {
+    return { restaurant: null, error: ownerError, isConfigured: true };
   }
 
   const { data, error } = await supabase
@@ -130,6 +162,53 @@ export async function getSellerDashboardMetrics() {
       activeMenuItems: activeMenuItems.count ?? 0,
     },
   };
+}
+
+export async function updateSellerRestaurantProfile(formData) {
+  const supabase = await createClient();
+
+  if (!supabase) {
+    return { ok: false, message: "Supabase is not configured." };
+  }
+
+  const { restaurant, error: restaurantError } = await getSellerRestaurant();
+
+  if (restaurantError) {
+    return { ok: false, message: restaurantError.message };
+  }
+
+  if (!restaurant) {
+    return { ok: false, message: "Restaurant profile was not found for this seller." };
+  }
+
+  const name = cleanText(formData.get("name"));
+  const address = combineAddress(formData.get("address_detail"), formData.get("locality"));
+
+  if (!name || !address) {
+    return { ok: false, message: "Name and address are required." };
+  }
+
+  const payload = {
+    name,
+    description: cleanText(formData.get("description")),
+    phone_number: cleanText(formData.get("phone_number")),
+    address,
+    logo_url: cleanText(formData.get("logo_url")),
+    cover_url: cleanText(formData.get("cover_url")),
+    is_open: formData.get("is_open") === "on",
+  };
+
+  const { error } = await supabase
+    .from("restaurants")
+    .update(payload)
+    .eq("id", restaurant.id)
+    .eq("owner_user_id", restaurant.owner_user_id);
+
+  if (error) {
+    return { ok: false, message: error.message };
+  }
+
+  return { ok: true, message: "Restaurant profile updated." };
 }
 
 export function formatVnd(amount) {

@@ -1022,10 +1022,13 @@ begin
   returning id into v_cart_item_id;
 
   for v_choice in
-    select moc.id, moc.name, moc.price_delta
+    select distinct on (moc.id) moc.id, moc.name, moc.price_delta
     from public.menu_option_choices moc
+    join public.menu_option_groups mog on mog.id = moc.option_group_id
     where moc.id = any(p_option_choice_ids)
+      and mog.menu_item_id = p_menu_item_id
       and moc.is_available = true
+    order by moc.id
   loop
     insert into public.cart_item_options (
       cart_item_id,
