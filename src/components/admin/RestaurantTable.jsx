@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { listRestaurants, updateRestaurant } from "@/services/restaurantService";
+import { listRestaurants, updateRestaurant } from "@/services/adminRestaurantService";
 
 const statuses = ["active", "inactive", "suspended"];
 
