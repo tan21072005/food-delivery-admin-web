@@ -1,10 +1,11 @@
 -- Basic seller offers schema for /seller/promotions.
--- Apply this SQL before using the promotions UI.
--- RLS keeps sellers scoped to restaurants they own.
+-- Apply this SQL before using the promotions UI if public.offers is not in the main v3 schema yet.
+-- This is additive so an Admin Offers flow can share the table without losing existing columns.
+-- Sellers manage restaurant-scoped rows; admins can manage all rows, including app-wide rows with restaurant_id null.
 
 create table if not exists public.offers (
   id bigserial primary key,
-  restaurant_id bigint not null references public.restaurants(id) on delete cascade,
+  restaurant_id bigint references public.restaurants(id) on delete cascade,
   title text not null,
   description text,
   discount_type text not null default 'percent' check (discount_type in ('percent', 'fixed')),
@@ -17,6 +18,19 @@ create table if not exists public.offers (
   updated_at timestamptz not null default now(),
   check (ends_at is null or starts_at is null or ends_at > starts_at)
 );
+
+alter table public.offers
+  add column if not exists restaurant_id bigint references public.restaurants(id) on delete cascade,
+  add column if not exists title text,
+  add column if not exists description text,
+  add column if not exists discount_type text not null default 'percent',
+  add column if not exists discount_value numeric(12, 2) not null default 0,
+  add column if not exists min_order_amount numeric(12, 2) not null default 0,
+  add column if not exists starts_at timestamptz,
+  add column if not exists ends_at timestamptz,
+  add column if not exists status text not null default 'active',
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
 
 create index if not exists offers_restaurant_status_idx
 on public.offers (restaurant_id, status, created_at desc);
@@ -31,6 +45,27 @@ alter table public.offers enable row level security;
 grant select on public.offers to authenticated;
 grant insert, update, delete on public.offers to authenticated;
 grant usage, select on sequence public.offers_id_seq to authenticated;
+
+drop policy if exists "admins manage all offers" on public.offers;
+create policy "admins manage all offers"
+on public.offers for all
+to authenticated
+using (
+  exists (
+    select 1
+    from public.users u
+    where u.id = (select public.current_app_user_id())
+      and u.role = 'admin'
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.users u
+    where u.id = (select public.current_app_user_id())
+      and u.role = 'admin'
+  )
+);
 
 drop policy if exists "restaurant owners manage own offers" on public.offers;
 create policy "restaurant owners manage own offers"
