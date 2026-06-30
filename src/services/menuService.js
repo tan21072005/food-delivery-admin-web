@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { getSellerRestaurant } from "@/services/restaurantService";
 
+const MENU_ITEM_STATUSES = new Set(["active", "inactive", "sold_out"]);
+
 function cleanText(value) {
   const text = value?.toString().trim();
   return text || null;
@@ -9,6 +11,26 @@ function cleanText(value) {
 function cleanPrice(value) {
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function cleanMenuItemStatus(value) {
+  const status = cleanText(value) ?? "active";
+  return MENU_ITEM_STATUSES.has(status) ? status : null;
+}
+
+async function categoryBelongsToRestaurant(supabase, categoryId, restaurantId) {
+  if (!categoryId) {
+    return true;
+  }
+
+  const { data, error } = await supabase
+    .from("dish_categories")
+    .select("id")
+    .eq("id", categoryId)
+    .eq("restaurant_id", restaurantId)
+    .maybeSingle();
+
+  return !error && Boolean(data);
 }
 
 async function getRestaurantContext() {
@@ -61,19 +83,25 @@ export async function createMenuItem(formData) {
 
   const name = cleanText(formData.get("name"));
   const basePrice = cleanPrice(formData.get("base_price"));
+  const dishCategoryId = cleanText(formData.get("dish_category_id"));
+  const status = cleanMenuItemStatus(formData.get("status"));
 
-  if (!name || basePrice === null) {
-    return { ok: false, message: "Name and a valid price are required." };
+  if (!name || basePrice === null || !status) {
+    return { ok: false, message: "Name, a valid price, and a valid status are required." };
+  }
+
+  if (!(await categoryBelongsToRestaurant(supabase, dishCategoryId, restaurant.id))) {
+    return { ok: false, message: "Selected category was not found for this restaurant." };
   }
 
   const payload = {
     restaurant_id: restaurant.id,
-    dish_category_id: cleanText(formData.get("dish_category_id")),
+    dish_category_id: dishCategoryId,
     name,
     description: cleanText(formData.get("description")),
     base_price: basePrice,
     image_url: cleanText(formData.get("image_url")),
-    status: cleanText(formData.get("status")) ?? "active",
+    status,
   };
 
   const { error: insertError } = await supabase.from("menu_items").insert(payload);
@@ -90,18 +118,24 @@ export async function updateMenuItem(formData) {
   const id = cleanText(formData.get("id"));
   const name = cleanText(formData.get("name"));
   const basePrice = cleanPrice(formData.get("base_price"));
+  const dishCategoryId = cleanText(formData.get("dish_category_id"));
+  const status = cleanMenuItemStatus(formData.get("status"));
 
-  if (!id || !name || basePrice === null) {
-    return { ok: false, message: "Item id, name, and a valid price are required." };
+  if (!id || !name || basePrice === null || !status) {
+    return { ok: false, message: "Item id, name, a valid price, and a valid status are required." };
+  }
+
+  if (!(await categoryBelongsToRestaurant(supabase, dishCategoryId, restaurant.id))) {
+    return { ok: false, message: "Selected category was not found for this restaurant." };
   }
 
   const payload = {
-    dish_category_id: cleanText(formData.get("dish_category_id")),
+    dish_category_id: dishCategoryId,
     name,
     description: cleanText(formData.get("description")),
     base_price: basePrice,
     image_url: cleanText(formData.get("image_url")),
-    status: cleanText(formData.get("status")) ?? "active",
+    status,
   };
 
   const { error: updateError } = await supabase
