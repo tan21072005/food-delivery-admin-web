@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { listOrderLines, listOrders } from "@/services/orderService";
+import { listOrderLines, listOrders } from "@/services/adminOrderService";
 
 const statuses = [
   "pending",

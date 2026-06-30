@@ -13,6 +13,7 @@ const navItems = {
     { href: "/seller/restaurant", label: "Restaurant" },
     { href: "/seller/menus", label: "Menus" },
     { href: "/seller/orders", label: "Orders" },
+    { href: "/seller/promotions", label: "Promotions" },
   ],
 };
 

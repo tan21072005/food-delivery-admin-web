@@ -1,7 +1,6 @@
 export const ROLES = {
   ADMIN: "admin",
-  SELLER: "seller",
-  RESTAURANT: "restaurant",
+  RESTAURANT_OWNER: "restaurant_owner",
   CUSTOMER: "customer",
 };
 
@@ -14,7 +13,7 @@ export function getHomePathForRole(role) {
     return "/admin/dashboard";
   }
 
-  if (role === ROLES.SELLER || role === ROLES.RESTAURANT) {
+  if (role === ROLES.RESTAURANT_OWNER) {
     return "/seller/dashboard";
   }
 
@@ -27,7 +26,7 @@ export function canAccessPath(role, pathname) {
   }
 
   if (pathname.startsWith("/seller")) {
-    return role === ROLES.SELLER || role === ROLES.RESTAURANT;
+    return role === ROLES.RESTAURANT_OWNER;
   }
 
   return true;
