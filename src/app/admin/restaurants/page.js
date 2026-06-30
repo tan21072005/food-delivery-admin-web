@@ -1,12 +1,18 @@
-import { PlaceholderPage } from "@/components/PlaceholderPage";
+﻿import { AppShell } from "@/components/AppShell";
+import { RestaurantTable } from "@/components/admin/RestaurantTable";
+
+export const metadata = {
+  title: "Restaurants | Food Delivery Admin",
+};
 
 export default function AdminRestaurantsPage() {
   return (
-    <PlaceholderPage
+    <AppShell
       section="admin"
       title="Restaurants"
       description="Admin foundation for viewing and editing all restaurants."
-      items={["List all restaurants", "Open restaurant detail", "Edit restaurant status and profile"]}
-    />
+    >
+      <RestaurantTable />
+    </AppShell>
   );
 }

@@ -1,6 +1,7 @@
 -- Basic offers schema for /seller/promotions and /admin/offers.
 -- Apply this SQL if public.offers is not already present in the main v3 schema.
--- Offers can be restaurant-scoped, or app-wide when restaurant_id is null.
+-- This is additive so Seller Promotions and Admin Offers can share one table.
+-- Sellers manage restaurant-scoped rows; admins can manage all rows, including app-wide rows with restaurant_id null.
 
 create table if not exists public.offers (
   id bigserial primary key,
