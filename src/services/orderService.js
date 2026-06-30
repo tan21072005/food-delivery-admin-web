@@ -71,8 +71,6 @@ export async function advanceOrderStatus(formData) {
     return { ok: false, message: `Cannot move order from ${order.status} to ${nextStatus}.` };
   }
 
-  const { data: profile } = await supabase.from("users").select("id").limit(1).maybeSingle();
-
   const { error: updateError } = await supabase
     .from("orders")
     .update({ status: nextStatus })
@@ -87,7 +85,7 @@ export async function advanceOrderStatus(formData) {
     order_id: order.id,
     from_status: order.status,
     to_status: nextStatus,
-    changed_by_user_id: profile?.id ?? null,
+    changed_by_user_id: restaurant.owner_user_id,
     note: "Updated from seller portal",
   });
 
