@@ -40,11 +40,27 @@ export async function getSellerRestaurant() {
     return { restaurant: null, error: userError ?? new Error("Not authenticated"), isConfigured: true };
   }
 
+  const { data: appUser, error: appUserError } = await supabase
+    .from("users")
+    .select("id, role")
+    .eq("auth_uid", user.id)
+    .eq("role", "restaurant_owner")
+    .maybeSingle();
+
+  if (appUserError || !appUser) {
+    return {
+      restaurant: null,
+      error: appUserError ?? new Error("Authenticated user is not a restaurant owner"),
+      isConfigured: true,
+    };
+  }
+
   const { data, error } = await supabase
     .from("restaurants")
     .select(
       "id, owner_user_id, name, description, phone_number, address, logo_url, cover_url, is_open, status, avg_rating, total_reviews",
     )
+    .eq("owner_user_id", appUser.id)
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
