@@ -409,6 +409,60 @@ set price_delta = excluded.price_delta, is_available = excluded.is_available, so
 -- ============================================================
 -- 7. DELIVERY ADDRESSES
 -- ============================================================
+with seed_addresses (
+  customer_email,
+  label,
+  receiver_name,
+  receiver_phone,
+  address_line,
+  building_name,
+  floor,
+  gate_note,
+  latitude,
+  longitude,
+  is_default
+) as (
+  values
+    (
+      'minhanh@food.local',
+      'Nha',
+      'Nguyen Minh Anh',
+      '0901000001',
+      '25 Nguyen Dinh Chieu, District 1, Ho Chi Minh City',
+      'Apartment A',
+      '10',
+      'Call before delivery',
+      10.782021,
+      106.700744,
+      true
+    ),
+    (
+      'minhanh@food.local',
+      'Cong ty',
+      'Nguyen Minh Anh',
+      '0901000001',
+      '2 Hai Trieu, District 1, Ho Chi Minh City',
+      'Bitexco area',
+      '18',
+      'Leave at reception',
+      10.771721,
+      106.704674,
+      false
+    ),
+    (
+      'baongoc@food.local',
+      'Nha',
+      'Tran Bao Ngoc',
+      '0901000002',
+      '102 Nguyen Van Troi, Phu Nhuan, Ho Chi Minh City',
+      null,
+      null,
+      'Call at gate',
+      10.798062,
+      106.674049,
+      true
+    )
+)
 insert into public.delivery_addresses (
   customer_id,
   label,
@@ -422,47 +476,28 @@ insert into public.delivery_addresses (
   longitude,
   is_default
 )
-values
-  (
-    (select id from public.users where email = 'minhanh@food.local'),
-    'Nha',
-    'Nguyen Minh Anh',
-    '0901000001',
-    '25 Nguyen Dinh Chieu, District 1, Ho Chi Minh City',
-    'Apartment A',
-    '10',
-    'Call before delivery',
-    10.782021,
-    106.700744,
-    true
-  ),
-  (
-    (select id from public.users where email = 'minhanh@food.local'),
-    'Cong ty',
-    'Nguyen Minh Anh',
-    '0901000001',
-    '2 Hai Trieu, District 1, Ho Chi Minh City',
-    'Bitexco area',
-    '18',
-    'Leave at reception',
-    10.771721,
-    106.704674,
-    false
-  ),
-  (
-    (select id from public.users where email = 'baongoc@food.local'),
-    'Nha',
-    'Tran Bao Ngoc',
-    '0901000002',
-    '102 Nguyen Van Troi, Phu Nhuan, Ho Chi Minh City',
-    null,
-    null,
-    'Call at gate',
-    10.798062,
-    106.674049,
-    true
-  )
-on conflict do nothing;
+select
+  u.id,
+  sa.label,
+  sa.receiver_name,
+  sa.receiver_phone,
+  sa.address_line,
+  sa.building_name,
+  sa.floor,
+  sa.gate_note,
+  sa.latitude,
+  sa.longitude,
+  sa.is_default
+from seed_addresses sa
+join public.users u on u.email = sa.customer_email
+where not exists (
+  select 1
+  from public.delivery_addresses existing
+  where existing.customer_id = u.id
+    and existing.label = sa.label
+    and existing.address_line = sa.address_line
+    and existing.deleted_at is null
+);
 
 -- ============================================================
 -- 8. ACTIVE DRAFT CART
@@ -477,23 +512,42 @@ on conflict (customer_id, restaurant_id) where status = 'active'
 do update set updated_at = now();
 
 insert into public.cart_items (cart_id, menu_item_id, quantity, last_known_unit_price, note)
-values (
-  (
-    select c.id
-    from public.carts c
-    join public.users u on u.id = c.customer_id
-    join public.restaurants r on r.id = c.restaurant_id
-    where u.email = 'minhanh@food.local'
-      and r.name = 'Bun Bo Hue Dong Ba'
-      and c.status = 'active'
-  ),
-  (select id from public.menu_items where name = 'Bun bo dac biet'),
+select
+  c.id,
+  mi.id,
   2,
   65000,
   'It cay, it hanh'
-)
-on conflict do nothing;
+from public.carts c
+join public.users u on u.id = c.customer_id
+join public.restaurants r on r.id = c.restaurant_id
+join public.menu_items mi on mi.restaurant_id = r.id and mi.name = 'Bun bo dac biet'
+where u.email = 'minhanh@food.local'
+  and r.name = 'Bun Bo Hue Dong Ba'
+  and c.status = 'active'
+  and not exists (
+    select 1
+    from public.cart_items existing
+    where existing.cart_id = c.id
+      and existing.menu_item_id = mi.id
+      and coalesce(existing.note, '') = 'It cay, it hanh'
+  );
 
+with seeded_cart_item as (
+  select ci.id
+  from public.cart_items ci
+  join public.carts c on c.id = ci.cart_id
+  join public.users u on u.id = c.customer_id
+  join public.restaurants r on r.id = c.restaurant_id
+  join public.menu_items mi on mi.id = ci.menu_item_id
+  where u.email = 'minhanh@food.local'
+    and r.name = 'Bun Bo Hue Dong Ba'
+    and c.status = 'active'
+    and mi.name = 'Bun bo dac biet'
+    and coalesce(ci.note, '') = 'It cay, it hanh'
+  order by ci.id
+  limit 1
+)
 insert into public.cart_item_options (
   cart_item_id,
   option_choice_id,
@@ -501,24 +555,87 @@ insert into public.cart_item_options (
   price_delta_snapshot
 )
 select
-  ci.id,
+  sci.id,
   moc.id,
   moc.name,
   moc.price_delta
-from public.cart_items ci
-join public.carts c on c.id = ci.cart_id
-join public.users u on u.id = c.customer_id
-join public.menu_items mi on mi.id = ci.menu_item_id
+from seeded_cart_item sci
+join public.menu_items mi on mi.name = 'Bun bo dac biet'
 join public.menu_option_groups mog on mog.menu_item_id = mi.id
 join public.menu_option_choices moc on moc.option_group_id = mog.id
-where u.email = 'minhanh@food.local'
-  and mi.name = 'Bun bo dac biet'
-  and moc.name in ('To lon', 'Them bo')
-on conflict do nothing;
+where moc.name in ('To lon', 'Them bo')
+  and not exists (
+    select 1
+    from public.cart_item_options existing
+    where existing.cart_item_id = sci.id
+      and existing.option_choice_id = moc.id
+  );
 
 -- ============================================================
 -- 9. SAMPLE ORDERS FOR HISTORY TABS
 -- ============================================================
+with seed_orders (
+  customer_email,
+  restaurant_name,
+  address_label,
+  delivery_address_snapshot_json,
+  status,
+  subtotal,
+  delivery_fee,
+  discount_amount,
+  total_amount,
+  payment_method,
+  payment_status,
+  note,
+  created_at
+) as (
+  values
+    (
+      'minhanh@food.local',
+      'Pizza 4Ps Le Loi',
+      'Cong ty',
+      jsonb_build_object('label','Cong ty','receiver_name','Nguyen Minh Anh','receiver_phone','0901000001','address_line','2 Hai Trieu, District 1, Ho Chi Minh City'),
+      'pending'::public.app_order_status,
+      184000,
+      15000,
+      0,
+      199000,
+      'COD'::public.app_payment_method,
+      'pending'::public.app_payment_status,
+      'Please call before arrival',
+      now() - interval '20 minutes'
+    ),
+    (
+      'minhanh@food.local',
+      'Bun Bo Hue Dong Ba',
+      'Nha',
+      jsonb_build_object('label','Nha','receiver_name','Nguyen Minh Anh','receiver_phone','0901000001','address_line','25 Nguyen Dinh Chieu, District 1, Ho Chi Minh City'),
+      'completed'::public.app_order_status,
+      95000,
+      15000,
+      10000,
+      100000,
+      'COD'::public.app_payment_method,
+      'paid'::public.app_payment_status,
+      'Completed demo order',
+      now() - interval '2 days'
+    ),
+    (
+      'baongoc@food.local',
+      'Bobapop CMT8',
+      'Nha',
+      jsonb_build_object('label','Nha','receiver_name','Tran Bao Ngoc','receiver_phone','0901000002','address_line','102 Nguyen Van Troi, Phu Nhuan, Ho Chi Minh City'),
+      'cancelled'::public.app_order_status,
+      49000,
+      15000,
+      0,
+      64000,
+      'COD'::public.app_payment_method,
+      'failed'::public.app_payment_status,
+      'Customer cancelled while pending',
+      now() - interval '1 day'
+    )
+)
 insert into public.orders (
   customer_id,
   restaurant_id,
@@ -534,53 +651,40 @@ insert into public.orders (
   note,
   created_at
 )
-values
-  (
-    (select id from public.users where email = 'minhanh@food.local'),
-    (select id from public.restaurants where name = 'Pizza 4Ps Le Loi'),
-    (select id from public.delivery_addresses where customer_id = (select id from public.users where email = 'minhanh@food.local') and label = 'Cong ty' limit 1),
-    jsonb_build_object('label','Cong ty','receiver_name','Nguyen Minh Anh','receiver_phone','0901000001','address_line','2 Hai Trieu, District 1, Ho Chi Minh City'),
-    'pending',
-    184000,
-    15000,
-    0,
-    199000,
-    'COD',
-    'pending',
-    'Please call before arrival',
-    now() - interval '20 minutes'
-  ),
-  (
-    (select id from public.users where email = 'minhanh@food.local'),
-    (select id from public.restaurants where name = 'Bun Bo Hue Dong Ba'),
-    (select id from public.delivery_addresses where customer_id = (select id from public.users where email = 'minhanh@food.local') and label = 'Nha' limit 1),
-    jsonb_build_object('label','Nha','receiver_name','Nguyen Minh Anh','receiver_phone','0901000001','address_line','25 Nguyen Dinh Chieu, District 1, Ho Chi Minh City'),
-    'completed',
-    95000,
-    15000,
-    10000,
-    100000,
-    'COD',
-    'paid',
-    'Completed demo order',
-    now() - interval '2 days'
-  ),
-  (
-    (select id from public.users where email = 'baongoc@food.local'),
-    (select id from public.restaurants where name = 'Bobapop CMT8'),
-    (select id from public.delivery_addresses where customer_id = (select id from public.users where email = 'baongoc@food.local') and label = 'Nha' limit 1),
-    jsonb_build_object('label','Nha','receiver_name','Tran Bao Ngoc','receiver_phone','0901000002','address_line','102 Nguyen Van Troi, Phu Nhuan, Ho Chi Minh City'),
-    'cancelled',
-    49000,
-    15000,
-    0,
-    64000,
-    'COD',
-    'failed',
-    'Customer cancelled while pending',
-    now() - interval '1 day'
-  )
-on conflict do nothing;
+select
+  u.id,
+  r.id,
+  da.id,
+  so.delivery_address_snapshot_json,
+  so.status,
+  so.subtotal,
+  so.delivery_fee,
+  so.discount_amount,
+  so.total_amount,
+  so.payment_method,
+  so.payment_status,
+  so.note,
+  so.created_at
+from seed_orders so
+join public.users u on u.email = so.customer_email
+join public.restaurants r on r.name = so.restaurant_name
+left join lateral (
+  select da.id
+  from public.delivery_addresses da
+  where da.customer_id = u.id
+    and da.label = so.address_label
+    and da.deleted_at is null
+  order by da.id
+  limit 1
+) da on true
+where not exists (
+  select 1
+  from public.orders existing
+  where existing.customer_id = u.id
+    and existing.restaurant_id = r.id
+    and existing.status = so.status
+    and existing.note = so.note
+);
 
 insert into public.order_lines (
   order_id,
@@ -604,7 +708,13 @@ join public.restaurants r on r.id = o.restaurant_id
 join public.menu_items mi on mi.restaurant_id = r.id and mi.name = 'Pizza hai san size M'
 where r.name = 'Pizza 4Ps Le Loi'
   and o.status = 'pending'
-on conflict do nothing;
+  and o.note = 'Please call before arrival'
+  and not exists (
+    select 1
+    from public.order_lines existing
+    where existing.order_id = o.id
+      and existing.menu_item_id = mi.id
+  );
 
 insert into public.order_lines (
   order_id,
@@ -628,7 +738,13 @@ join public.restaurants r on r.id = o.restaurant_id
 join public.menu_items mi on mi.restaurant_id = r.id and mi.name = 'Bun bo dac biet'
 where r.name = 'Bun Bo Hue Dong Ba'
   and o.status = 'completed'
-on conflict do nothing;
+  and o.note = 'Completed demo order'
+  and not exists (
+    select 1
+    from public.order_lines existing
+    where existing.order_id = o.id
+      and existing.menu_item_id = mi.id
+  );
 
 insert into public.order_lines (
   order_id,
@@ -652,7 +768,13 @@ join public.restaurants r on r.id = o.restaurant_id
 join public.menu_items mi on mi.restaurant_id = r.id and mi.name = 'Tra sua tran chau duong den'
 where r.name = 'Bobapop CMT8'
   and o.status = 'cancelled'
-on conflict do nothing;
+  and o.note = 'Customer cancelled while pending'
+  and not exists (
+    select 1
+    from public.order_lines existing
+    where existing.order_id = o.id
+      and existing.menu_item_id = mi.id
+  );
 
 insert into public.order_status_history (order_id, from_status, to_status, changed_by_user_id, note)
 select o.id, null, o.status, o.customer_id,
