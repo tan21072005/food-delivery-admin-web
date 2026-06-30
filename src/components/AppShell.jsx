@@ -7,6 +7,7 @@ const navItems = {
     { href: "/admin/users", label: "Users" },
     { href: "/admin/orders", label: "Orders" },
     { href: "/admin/categories", label: "Categories" },
+    { href: "/admin/offers", label: "Offers" },
   ],
   seller: [
     { href: "/seller/dashboard", label: "Dashboard" },

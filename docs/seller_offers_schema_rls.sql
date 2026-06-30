@@ -1,6 +1,6 @@
--- Basic seller offers schema for /seller/promotions.
--- Apply this SQL before using the promotions UI if public.offers is not in the main v3 schema yet.
--- This is additive so an Admin Offers flow can share the table without losing existing columns.
+-- Basic offers schema for /seller/promotions and /admin/offers.
+-- Apply this SQL if public.offers is not already present in the main v3 schema.
+-- This is additive so Seller Promotions and Admin Offers can share one table.
 -- Sellers manage restaurant-scoped rows; admins can manage all rows, including app-wide rows with restaurant_id null.
 
 create table if not exists public.offers (
@@ -72,7 +72,8 @@ create policy "restaurant owners manage own offers"
 on public.offers for all
 to authenticated
 using (
-  exists (
+  restaurant_id is not null
+  and exists (
     select 1
     from public.restaurants r
     where r.id = offers.restaurant_id
@@ -80,7 +81,8 @@ using (
   )
 )
 with check (
-  exists (
+  restaurant_id is not null
+  and exists (
     select 1
     from public.restaurants r
     where r.id = offers.restaurant_id
