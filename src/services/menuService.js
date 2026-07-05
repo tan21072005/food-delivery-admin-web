@@ -1,7 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
+import { MENU_ITEM_STATUS_OPTIONS, validateMenuItemPayload } from "@/lib/validation/menuItem";
 import { getSellerRestaurant } from "@/services/restaurantService";
+import { uploadRestaurantImage } from "@/services/imageUploadService";
 
-const MENU_ITEM_STATUSES = new Set(["active", "inactive", "sold_out"]);
+export { MENU_ITEM_STATUS_OPTIONS } from "@/lib/validation/menuItem";
+
+const MENU_ITEM_STATUSES = new Set(MENU_ITEM_STATUS_OPTIONS);
+const DEFAULT_PAGE_SIZE = 8;
 
 function cleanText(value) {
   const text = value?.toString().trim();
@@ -10,12 +15,24 @@ function cleanText(value) {
 
 function cleanPrice(value) {
   const number = Number(value);
-  return Number.isFinite(number) && number >= 0 ? number : null;
+  return Number.isFinite(number) ? number : null;
 }
 
 function cleanMenuItemStatus(value) {
   const status = cleanText(value) ?? "active";
   return MENU_ITEM_STATUSES.has(status) ? status : null;
+}
+
+function cleanMenuStatusFilter(value) {
+  const status = cleanText(value);
+  return MENU_ITEM_STATUSES.has(status) ? status : "all";
+}
+
+function getPageRange(page, pageSize = DEFAULT_PAGE_SIZE) {
+  const safePage = Math.max(1, Number(page) || 1);
+  const safePageSize = Math.max(1, Number(pageSize) || DEFAULT_PAGE_SIZE);
+  const from = (safePage - 1) * safePageSize;
+  return { from, to: from + safePageSize - 1, page: safePage, pageSize: safePageSize };
 }
 
 async function categoryBelongsToRestaurant(supabase, categoryId, restaurantId) {
@@ -44,11 +61,47 @@ async function getRestaurantContext() {
   return { supabase, restaurant, error, isConfigured };
 }
 
-export async function getSellerMenuPageData() {
+export async function getSellerMenuPageData({
+  page = 1,
+  pageSize = DEFAULT_PAGE_SIZE,
+  status = "all",
+  categoryId = "all",
+} = {}) {
   const { supabase, restaurant, error, isConfigured } = await getRestaurantContext();
 
   if (!isConfigured || error || !restaurant) {
-    return { restaurant, categories: [], menuItems: [], error, isConfigured };
+    return {
+      restaurant,
+      categories: [],
+      menuItems: [],
+      count: 0,
+      page,
+      pageSize,
+      status,
+      categoryId,
+      error,
+      isConfigured,
+    };
+  }
+
+  const range = getPageRange(page, pageSize);
+  const safeStatus = cleanMenuStatusFilter(status);
+  const safeCategoryId = categoryId === "all" ? "all" : cleanText(categoryId);
+  let menuRequest = supabase
+    .from("menu_items")
+    .select("id, dish_category_id, name, description, base_price, image_url, status, sold_count, dish_categories(name)", {
+      count: "exact",
+    })
+    .eq("restaurant_id", restaurant.id)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false });
+
+  if (safeStatus !== "all") {
+    menuRequest = menuRequest.eq("status", safeStatus);
+  }
+
+  if (safeCategoryId !== "all") {
+    menuRequest = menuRequest.eq("dish_category_id", safeCategoryId);
   }
 
   const [categories, menuItems] = await Promise.all([
@@ -57,18 +110,18 @@ export async function getSellerMenuPageData() {
       .select("id, name, status")
       .eq("restaurant_id", restaurant.id)
       .order("sort_order", { ascending: true }),
-    supabase
-      .from("menu_items")
-      .select("id, dish_category_id, name, description, base_price, image_url, status, sold_count, dish_categories(name)")
-      .eq("restaurant_id", restaurant.id)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false }),
+    menuRequest.range(range.from, range.to),
   ]);
 
   return {
     restaurant,
     categories: categories.data ?? [],
     menuItems: menuItems.data ?? [],
+    count: menuItems.count ?? 0,
+    page: range.page,
+    pageSize: range.pageSize,
+    status: safeStatus,
+    categoryId: safeCategoryId,
     error: categories.error ?? menuItems.error,
     isConfigured,
   };
@@ -85,15 +138,6 @@ export async function createMenuItem(formData) {
   const basePrice = cleanPrice(formData.get("base_price"));
   const dishCategoryId = cleanText(formData.get("dish_category_id"));
   const status = cleanMenuItemStatus(formData.get("status"));
-
-  if (!name || basePrice === null || !status) {
-    return { ok: false, message: "Name, a valid price, and a valid status are required." };
-  }
-
-  if (!(await categoryBelongsToRestaurant(supabase, dishCategoryId, restaurant.id))) {
-    return { ok: false, message: "Selected category was not found for this restaurant." };
-  }
-
   const payload = {
     restaurant_id: restaurant.id,
     dish_category_id: dishCategoryId,
@@ -103,6 +147,28 @@ export async function createMenuItem(formData) {
     image_url: cleanText(formData.get("image_url")),
     status,
   };
+  const validationError = validateMenuItemPayload({ ...payload, image_file: formData.get("image_file") });
+
+  if (validationError) {
+    return { ok: false, message: validationError };
+  }
+
+  if (!(await categoryBelongsToRestaurant(supabase, dishCategoryId, restaurant.id))) {
+    return { ok: false, message: "Selected category was not found for this restaurant." };
+  }
+
+  const imageUpload = await uploadRestaurantImage(supabase, formData.get("image_file"), [
+    String(restaurant.id),
+    "menu",
+  ]);
+
+  if (imageUpload.error) {
+    return { ok: false, message: imageUpload.error };
+  }
+
+  if (imageUpload.url) {
+    payload.image_url = imageUpload.url;
+  }
 
   const { error: insertError } = await supabase.from("menu_items").insert(payload);
   return insertError ? { ok: false, message: insertError.message } : { ok: true, message: "Menu item created." };
@@ -121,12 +187,8 @@ export async function updateMenuItem(formData) {
   const dishCategoryId = cleanText(formData.get("dish_category_id"));
   const status = cleanMenuItemStatus(formData.get("status"));
 
-  if (!id || !name || basePrice === null || !status) {
-    return { ok: false, message: "Item id, name, a valid price, and a valid status are required." };
-  }
-
-  if (!(await categoryBelongsToRestaurant(supabase, dishCategoryId, restaurant.id))) {
-    return { ok: false, message: "Selected category was not found for this restaurant." };
+  if (!id) {
+    return { ok: false, message: "Item id is required." };
   }
 
   const payload = {
@@ -137,6 +199,28 @@ export async function updateMenuItem(formData) {
     image_url: cleanText(formData.get("image_url")),
     status,
   };
+  const validationError = validateMenuItemPayload({ ...payload, image_file: formData.get("image_file") });
+
+  if (validationError) {
+    return { ok: false, message: validationError };
+  }
+
+  if (!(await categoryBelongsToRestaurant(supabase, dishCategoryId, restaurant.id))) {
+    return { ok: false, message: "Selected category was not found for this restaurant." };
+  }
+
+  const imageUpload = await uploadRestaurantImage(supabase, formData.get("image_file"), [
+    String(restaurant.id),
+    "menu",
+  ]);
+
+  if (imageUpload.error) {
+    return { ok: false, message: imageUpload.error };
+  }
+
+  if (imageUpload.url) {
+    payload.image_url = imageUpload.url;
+  }
 
   const { error: updateError } = await supabase
     .from("menu_items")

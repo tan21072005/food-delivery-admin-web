@@ -1,4 +1,6 @@
-import Link from "next/link";
+import { getUserRole } from "@/lib/auth/roles";
+import { createClient } from "@/lib/supabase/server";
+import { AppShellChrome } from "@/components/AppShellChrome";
 
 const navItems = {
   admin: [
@@ -8,6 +10,7 @@ const navItems = {
     { href: "/admin/orders", label: "Orders" },
     { href: "/admin/categories", label: "Categories" },
     { href: "/admin/offers", label: "Offers" },
+    { href: "/admin/seller-applications", label: "Seller applications" },
   ],
   seller: [
     { href: "/seller/dashboard", label: "Dashboard" },
@@ -18,28 +21,22 @@ const navItems = {
   ],
 };
 
-export function AppShell({ section, title, description, children }) {
+export async function AppShell({ section, title, description, children }) {
   const items = navItems[section] ?? [];
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = supabase ? await supabase.auth.getUser() : { data: { user: null } };
+  const userSummary = user
+    ? {
+        email: user.email,
+        role: getUserRole(user),
+      }
+    : null;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-white/10 bg-slate-950/95 px-5 py-6 lg:block">
-        <Link href={`/${section}/dashboard`} className="block text-lg font-semibold">
-          Food Delivery
-        </Link>
-        <p className="mt-1 text-sm text-slate-400">{section === "admin" ? "Admin Portal" : "Seller Portal"}</p>
-        <nav className="mt-8 space-y-1">
-          {items.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="block rounded-md px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-      </aside>
+      <AppShellChrome section={section} items={items} user={userSummary} />
 
       <div className="lg:pl-64">
         <header className="border-b border-white/10 bg-slate-900/70 px-5 py-5 backdrop-blur">

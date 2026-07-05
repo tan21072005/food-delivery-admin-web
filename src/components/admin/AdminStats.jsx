@@ -61,8 +61,9 @@ export function AdminStats() {
           <MetricCard
             key={metric.key}
             label={metric.label}
-            value={loading ? "..." : stats[metric.key].toLocaleString("en-US")}
+            value={stats[metric.key].toLocaleString("en-US")}
             helper={metric.helper}
+            loading={loading}
           />
         ))}
       </div>

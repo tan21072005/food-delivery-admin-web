@@ -1,6 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { ROLES, getUserRole } from "@/lib/auth/roles";
+import { validateOfferPayload } from "@/lib/validation/offer";
 import { getSellerRestaurant } from "@/services/restaurantService";
+
+export const OFFER_STATUSES = ["active", "inactive"];
+const DEFAULT_PAGE_SIZE = 8;
 
 const offerColumns = `
   id,
@@ -27,12 +31,29 @@ function cleanText(value) {
 
 function cleanNumber(value, fallback = 0) {
   const number = Number(value);
-  return Number.isFinite(number) && number >= 0 ? number : fallback;
+  return Number.isFinite(number) ? number : fallback;
 }
 
 function cleanDateTime(value) {
   const text = cleanText(value);
-  return text ? new Date(text).toISOString() : null;
+  if (!text) {
+    return null;
+  }
+
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? text : date.toISOString();
+}
+
+function cleanOfferStatusFilter(value) {
+  const status = cleanText(value);
+  return OFFER_STATUSES.includes(status) ? status : "all";
+}
+
+function getPageRange(page, pageSize = DEFAULT_PAGE_SIZE) {
+  const safePage = Math.max(1, Number(page) || 1);
+  const safePageSize = Math.max(1, Number(pageSize) || DEFAULT_PAGE_SIZE);
+  const from = (safePage - 1) * safePageSize;
+  return { from, to: from + safePageSize - 1, page: safePage, pageSize: safePageSize };
 }
 
 async function getRestaurantContext() {
@@ -69,20 +90,39 @@ async function getAdminContext() {
   return { supabase, error: null, isConfigured: true };
 }
 
-export async function getSellerOffers() {
+export async function getSellerOffers({ page = 1, pageSize = DEFAULT_PAGE_SIZE, status = "all" } = {}) {
   const { supabase, restaurant, error, isConfigured } = await getRestaurantContext();
 
   if (!isConfigured || error || !restaurant) {
-    return { restaurant, offers: [], error, isConfigured };
+    return { restaurant, offers: [], count: 0, page, pageSize, status, error, isConfigured };
   }
 
-  const { data, error: offersError } = await supabase
+  const range = getPageRange(page, pageSize);
+  const safeStatus = cleanOfferStatusFilter(status);
+  let request = supabase
     .from("offers")
-    .select("id, title, description, discount_type, discount_value, min_order_amount, starts_at, ends_at, status")
+    .select("id, title, description, discount_type, discount_value, min_order_amount, starts_at, ends_at, status", {
+      count: "exact",
+    })
     .eq("restaurant_id", restaurant.id)
     .order("created_at", { ascending: false });
 
-  return { restaurant, offers: data ?? [], error: offersError, isConfigured };
+  if (safeStatus !== "all") {
+    request = request.eq("status", safeStatus);
+  }
+
+  const { data, error: offersError, count } = await request.range(range.from, range.to);
+
+  return {
+    restaurant,
+    offers: data ?? [],
+    count: count ?? 0,
+    page: range.page,
+    pageSize: range.pageSize,
+    status: safeStatus,
+    error: offersError,
+    isConfigured,
+  };
 }
 
 function buildOfferPayload(formData, restaurantId) {
@@ -103,30 +143,6 @@ function buildAdminOfferPayload(formData) {
   const restaurantId = cleanText(formData.get("restaurant_id"));
 
   return buildOfferPayload(formData, restaurantId ? Number(restaurantId) : null);
-}
-
-function validateOfferPayload(payload) {
-  if (!payload.title || payload.discount_value <= 0) {
-    return "Title and discount value greater than 0 are required.";
-  }
-
-  if (!["percent", "fixed"].includes(payload.discount_type)) {
-    return "Discount type must be percent or fixed.";
-  }
-
-  if (!["active", "inactive"].includes(payload.status)) {
-    return "Status must be active or inactive.";
-  }
-
-  if (payload.discount_type === "percent" && payload.discount_value > 100) {
-    return "Percent discounts cannot exceed 100.";
-  }
-
-  if (payload.starts_at && payload.ends_at && payload.starts_at >= payload.ends_at) {
-    return "Start time must be before end time.";
-  }
-
-  return null;
 }
 
 export async function createOffer(formData) {
@@ -198,21 +214,48 @@ export async function deactivateOffer(formData) {
   return updateError ? { ok: false, message: updateError.message } : { ok: true, message: "Offer deactivated." };
 }
 
-export async function getAdminOffers() {
+export async function getAdminOffers({
+  page = 1,
+  pageSize = DEFAULT_PAGE_SIZE,
+  status = "all",
+  restaurantId = "all",
+} = {}) {
   const { supabase, error, isConfigured } = await getAdminContext();
 
   if (!isConfigured || error) {
-    return { offers: [], restaurants: [], error, isConfigured };
+    return { offers: [], restaurants: [], count: 0, page, pageSize, status, restaurantId, error, isConfigured };
+  }
+
+  const range = getPageRange(page, pageSize);
+  const safeStatus = cleanOfferStatusFilter(status);
+  const safeRestaurantId = restaurantId === "all" ? "all" : cleanText(restaurantId);
+  let offerRequest = supabase.from("offers").select(offerColumns, { count: "exact" }).order("created_at", { ascending: false });
+
+  if (safeStatus !== "all") {
+    offerRequest = offerRequest.eq("status", safeStatus);
+  }
+
+  if (safeRestaurantId !== "all") {
+    if (safeRestaurantId === "global") {
+      offerRequest = offerRequest.is("restaurant_id", null);
+    } else {
+      offerRequest = offerRequest.eq("restaurant_id", safeRestaurantId);
+    }
   }
 
   const [offerResult, restaurantResult] = await Promise.all([
-    supabase.from("offers").select(offerColumns).order("created_at", { ascending: false }),
+    offerRequest.range(range.from, range.to),
     supabase.from("restaurants").select("id, name").is("deleted_at", null).order("name", { ascending: true }),
   ]);
 
   return {
     offers: offerResult.data ?? [],
     restaurants: restaurantResult.data ?? [],
+    count: offerResult.count ?? 0,
+    page: range.page,
+    pageSize: range.pageSize,
+    status: safeStatus,
+    restaurantId: safeRestaurantId,
     error: offerResult.error ?? restaurantResult.error,
     isConfigured,
   };

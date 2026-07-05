@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
+import { validateRestaurantProfilePayload } from "@/lib/validation/restaurantProfile";
+import { uploadRestaurantImage } from "@/services/imageUploadService";
 
 export function splitRestaurantAddress(address) {
   if (!address) {
@@ -183,11 +185,6 @@ export async function updateSellerRestaurantProfile(formData) {
 
   const name = cleanText(formData.get("name"));
   const address = combineAddress(formData.get("address_detail"), formData.get("locality"));
-
-  if (!name || !address) {
-    return { ok: false, message: "Name and address are required." };
-  }
-
   const payload = {
     name,
     description: cleanText(formData.get("description")),
@@ -197,6 +194,38 @@ export async function updateSellerRestaurantProfile(formData) {
     cover_url: cleanText(formData.get("cover_url")),
     is_open: formData.get("is_open") === "on",
   };
+  const validationError = validateRestaurantProfilePayload({
+    ...payload,
+    address_detail: cleanText(formData.get("address_detail")),
+    locality: cleanText(formData.get("locality")),
+    logo_file: formData.get("logo_file"),
+    cover_file: formData.get("cover_file"),
+  });
+
+  if (validationError) {
+    return { ok: false, message: validationError };
+  }
+
+  const [logoUpload, coverUpload] = await Promise.all([
+    uploadRestaurantImage(supabase, formData.get("logo_file"), [String(restaurant.id), "restaurant", "logo"]),
+    uploadRestaurantImage(supabase, formData.get("cover_file"), [String(restaurant.id), "restaurant", "cover"]),
+  ]);
+
+  if (logoUpload.error) {
+    return { ok: false, message: logoUpload.error };
+  }
+
+  if (coverUpload.error) {
+    return { ok: false, message: coverUpload.error };
+  }
+
+  if (logoUpload.url) {
+    payload.logo_url = logoUpload.url;
+  }
+
+  if (coverUpload.url) {
+    payload.cover_url = coverUpload.url;
+  }
 
   const { error } = await supabase
     .from("restaurants")

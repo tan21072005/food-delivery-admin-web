@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { TableEmptyStateRow, TableSkeletonRows } from "@/components/TableStateRows";
 import {
   createCategory,
   deleteCategory,
@@ -103,6 +104,16 @@ export function CategoryTable() {
 
   async function handleSubmit(event) {
     event.preventDefault();
+
+    if (form.id) {
+      const currentCategory = categories.find((category) => category.id === form.id);
+      const statusChanged = currentCategory && currentCategory.status !== form.status;
+
+      if (statusChanged && !window.confirm(`Change ${form.name} status to ${form.status}?`)) {
+        return;
+      }
+    }
+
     setSaving(true);
 
     const result = form.id ? await updateCategory(form.id, form) : await createCategory(form);
@@ -127,6 +138,12 @@ export function CategoryTable() {
   }
 
   async function handleDelete(categoryId) {
+    const category = categories.find((item) => item.id === categoryId);
+
+    if (!window.confirm(`Delete ${category?.name ?? "this category"}?`)) {
+      return;
+    }
+
     setSaving(true);
     const result = await deleteCategory(categoryId);
     setSaving(false);
@@ -186,19 +203,15 @@ export function CategoryTable() {
                 </thead>
                 <tbody className="divide-y divide-white/10">
                   {loading ? (
-                    <tr>
-                      <td colSpan="5" className="px-4 py-8 text-center text-slate-400">
-                        Loading categories...
-                      </td>
-                    </tr>
+                    <TableSkeletonRows columns={5} />
                   ) : null}
 
                   {!loading && filteredCategories.length === 0 ? (
-                    <tr>
-                      <td colSpan="5" className="px-4 py-8 text-center text-slate-400">
-                        No categories found.
-                      </td>
-                    </tr>
+                    <TableEmptyStateRow
+                      colSpan={5}
+                      title="No categories found"
+                      description="Create a category in the panel beside this table, or change the restaurant filter."
+                    />
                   ) : null}
 
                   {filteredCategories.map((category) => (

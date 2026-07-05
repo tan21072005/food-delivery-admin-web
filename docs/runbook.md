@@ -23,7 +23,16 @@ Use Node.js 20 or newer.
    NEXT_PUBLIC_SUPABASE_ANON_KEY=
    ```
 
-   Only use the Supabase anon key in this web app. Do not add a service role key to `.env.local` or any client/server source file.
+   Only public `NEXT_PUBLIC_*` values are available to the browser. Never expose a service role key to client code.
+
+   Seller application approval can invite/create seller auth users, set their server-side role, and create restaurant
+   profiles. Enable that server-only workflow with:
+
+   ```bash
+   NEXT_SUPABASE_SERVICE_ROLE_KEY=
+   ```
+
+   Keep this value only in trusted server/runtime environment files and deployment secrets.
 
 4. Start the local Next.js server:
 

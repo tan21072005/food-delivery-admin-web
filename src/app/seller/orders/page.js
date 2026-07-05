@@ -1,14 +1,22 @@
 import { revalidatePath } from "next/cache";
 import { AppShell } from "@/components/AppShell";
+import { EmptyState } from "@/components/EmptyState";
 import { OrderTable } from "@/components/seller/OrderTable";
+import { OrderFilters } from "@/components/seller/OrderFilters";
+import { OrdersAutoRefresh } from "@/components/seller/OrdersAutoRefresh";
+import { UrlPaginationControls } from "@/components/UrlPaginationControls";
 import { advanceOrderStatus, getSellerOrders } from "@/services/orderService";
 
 export const metadata = {
   title: "Seller Orders | Food Delivery Admin",
 };
 
-export default async function SellerOrdersPage() {
-  const { restaurant, orders, error, isConfigured } = await getSellerOrders();
+export default async function SellerOrdersPage({ searchParams }) {
+  const params = await searchParams;
+  const requestedPage = Number(params?.page ?? 1);
+  const requestedStatus = params?.status ?? "all";
+  const { restaurant, orders, count, pendingCount, page, pageSize, status, error, isConfigured } =
+    await getSellerOrders({ page: requestedPage, status: requestedStatus });
 
   async function advanceAction(formData) {
     "use server";
@@ -36,16 +44,35 @@ export default async function SellerOrdersPage() {
 
       {restaurant ? (
         <section className="space-y-4">
-          <div>
-            <h2 className="text-lg font-semibold text-white">{restaurant.name}</h2>
-            <p className="mt-1 text-sm text-slate-400">Pending orders can be advanced through ready status.</p>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-white">{restaurant.name}</h2>
+              <p className="mt-1 text-sm text-slate-400">Pending orders can be advanced through ready status.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-xs font-semibold text-amber-100">
+                {pendingCount} pending
+              </span>
+              <OrdersAutoRefresh restaurantId={restaurant.id} pendingCount={pendingCount} />
+            </div>
           </div>
+          <OrderFilters status={status} />
           <OrderTable orders={orders} advanceAction={advanceAction} />
+          <UrlPaginationControls
+            basePath="/seller/orders"
+            searchParams={{ status: status === "all" ? "" : status }}
+            page={page}
+            pageSize={pageSize}
+            total={count}
+          />
         </section>
       ) : (
-        <div className="rounded-lg border border-white/10 bg-white/[0.04] p-6 text-sm text-slate-300">
-          No restaurant profile was found for this seller.
-        </div>
+        <EmptyState
+          title="No restaurant profile found"
+          description="Orders are available after an admin approves and provisions this seller restaurant."
+          actionHref="/seller/apply"
+          actionLabel="Apply as seller"
+        />
       )}
     </AppShell>
   );

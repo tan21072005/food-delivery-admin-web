@@ -20,7 +20,15 @@ export function getHomePathForRole(role) {
   return "/login";
 }
 
+export function isPublicAppPath(pathname) {
+  return pathname === "/seller/apply";
+}
+
 export function canAccessPath(role, pathname) {
+  if (isPublicAppPath(pathname)) {
+    return true;
+  }
+
   if (pathname.startsWith("/admin")) {
     return role === ROLES.ADMIN;
   }

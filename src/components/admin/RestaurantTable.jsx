@@ -1,6 +1,8 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { PaginationControls } from "@/components/PaginationControls";
+import { TableEmptyStateRow, TableSkeletonRows } from "@/components/TableStateRows";
 import { listRestaurants, updateRestaurant } from "@/services/adminRestaurantService";
 
 const statuses = ["active", "inactive", "suspended"];
@@ -44,6 +46,9 @@ export function RestaurantTable() {
   const [form, setForm] = useState(initialForm);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState(null);
@@ -53,13 +58,15 @@ export function RestaurantTable() {
 
     async function loadRestaurants() {
       setLoading(true);
-      const result = await listRestaurants();
+      const result = await listRestaurants({ page, query, status: statusFilter });
 
       if (!mounted) {
         return;
       }
 
       setRestaurants(result.data);
+      setPageSize(result.pageSize);
+      setTotal(result.count);
       setNotice(result.error ? { type: "error", message: result.error } : null);
       setLoading(false);
     }
@@ -69,23 +76,17 @@ export function RestaurantTable() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [page, query, statusFilter]);
 
-  const filteredRestaurants = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
+  function updateQuery(value) {
+    setQuery(value);
+    setPage(1);
+  }
 
-    return restaurants.filter((restaurant) => {
-      const matchesQuery =
-        !normalizedQuery ||
-        restaurant.name?.toLowerCase().includes(normalizedQuery) ||
-        restaurant.owner?.full_name?.toLowerCase().includes(normalizedQuery) ||
-        restaurant.owner?.email?.toLowerCase().includes(normalizedQuery);
-
-      const matchesStatus = statusFilter === "all" || restaurant.status === statusFilter;
-
-      return matchesQuery && matchesStatus;
-    });
-  }, [query, restaurants, statusFilter]);
+  function updateStatusFilter(value) {
+    setStatusFilter(value);
+    setPage(1);
+  }
 
   function selectRestaurant(restaurant) {
     setSelectedRestaurant(restaurant);
@@ -105,6 +106,22 @@ export function RestaurantTable() {
 
     if (!form.id) {
       return;
+    }
+
+    const statusChanged = selectedRestaurant && selectedRestaurant.status !== form.status;
+    const openChanged = selectedRestaurant && Boolean(selectedRestaurant.is_open) !== Boolean(form.is_open);
+
+    if (statusChanged || openChanged) {
+      const changes = [
+        statusChanged ? `status to ${form.status}` : null,
+        openChanged ? (form.is_open ? "open for orders" : "closed for orders") : null,
+      ]
+        .filter(Boolean)
+        .join(" and ");
+
+      if (!window.confirm(`Update ${selectedRestaurant.name} ${changes}?`)) {
+        return;
+      }
     }
 
     setSaving(true);
@@ -141,13 +158,13 @@ export function RestaurantTable() {
       <div className="grid gap-3 md:grid-cols-[1fr_180px]">
         <input
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search restaurants or owners"
+          onChange={(event) => updateQuery(event.target.value)}
+          placeholder="Search restaurants, address, or phone"
           className="rounded-md border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-emerald-300/70"
         />
         <select
           value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value)}
+          onChange={(event) => updateStatusFilter(event.target.value)}
           className="rounded-md border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white outline-none transition focus:border-emerald-300/70"
         >
           <option value="all">All statuses</option>
@@ -175,22 +192,18 @@ export function RestaurantTable() {
               </thead>
               <tbody className="divide-y divide-white/10">
                 {loading ? (
-                  <tr>
-                    <td colSpan="6" className="px-4 py-8 text-center text-slate-400">
-                      Loading restaurants...
-                    </td>
-                  </tr>
+                  <TableSkeletonRows columns={6} />
                 ) : null}
 
-                {!loading && filteredRestaurants.length === 0 ? (
-                  <tr>
-                    <td colSpan="6" className="px-4 py-8 text-center text-slate-400">
-                      No restaurants found.
-                    </td>
-                  </tr>
+                {!loading && restaurants.length === 0 ? (
+                  <TableEmptyStateRow
+                    colSpan={6}
+                    title="No restaurants found"
+                    description="Try a different search term or status filter."
+                  />
                 ) : null}
 
-                {filteredRestaurants.map((restaurant) => (
+                {restaurants.map((restaurant) => (
                   <tr
                     key={restaurant.id}
                     className="cursor-pointer transition hover:bg-white/[0.03]"
@@ -221,6 +234,7 @@ export function RestaurantTable() {
               </tbody>
             </table>
           </div>
+          <PaginationControls page={page} pageSize={pageSize} total={total} onPageChange={setPage} disabled={loading} />
         </div>
 
         <form onSubmit={handleSubmit} className="rounded-lg border border-white/10 bg-white/[0.04] p-5">

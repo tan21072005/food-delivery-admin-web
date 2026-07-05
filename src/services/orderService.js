@@ -7,9 +7,33 @@ export const SELLER_STATUS_FLOW = {
   preparing: "ready_for_pickup",
 };
 
+export const ORDER_STATUSES = [
+  "pending",
+  "confirmed",
+  "preparing",
+  "ready_for_pickup",
+  "delivering",
+  "completed",
+  "cancelled",
+];
+
+const DEFAULT_PAGE_SIZE = 8;
+
 function cleanText(value) {
   const text = value?.toString().trim();
   return text || null;
+}
+
+function cleanStatus(value) {
+  const status = cleanText(value);
+  return ORDER_STATUSES.includes(status) ? status : "all";
+}
+
+function getPageRange(page, pageSize = DEFAULT_PAGE_SIZE) {
+  const safePage = Math.max(1, Number(page) || 1);
+  const safePageSize = Math.max(1, Number(pageSize) || DEFAULT_PAGE_SIZE);
+  const from = (safePage - 1) * safePageSize;
+  return { from, to: from + safePageSize - 1, page: safePage, pageSize: safePageSize };
 }
 
 async function getRestaurantContext() {
@@ -23,22 +47,48 @@ async function getRestaurantContext() {
   return { supabase, restaurant, error, isConfigured };
 }
 
-export async function getSellerOrders() {
+export async function getSellerOrders({ page = 1, pageSize = DEFAULT_PAGE_SIZE, status = "all" } = {}) {
   const { supabase, restaurant, error, isConfigured } = await getRestaurantContext();
 
   if (!isConfigured || error || !restaurant) {
-    return { restaurant, orders: [], error, isConfigured };
+    return { restaurant, orders: [], count: 0, pendingCount: 0, page, pageSize, status, error, isConfigured };
   }
 
-  const { data, error: ordersError } = await supabase
+  const range = getPageRange(page, pageSize);
+  const safeStatus = cleanStatus(status);
+  let orderRequest = supabase
     .from("orders")
     .select(
       "id, status, subtotal, delivery_fee, discount_amount, total_amount, payment_method, payment_status, note, created_at, order_lines(id, item_name_snapshot, quantity, unit_price_snapshot, subtotal, options_snapshot_json)",
+      { count: "exact" },
     )
     .eq("restaurant_id", restaurant.id)
     .order("created_at", { ascending: false });
 
-  return { restaurant, orders: data ?? [], error: ordersError, isConfigured };
+  if (safeStatus !== "all") {
+    orderRequest = orderRequest.eq("status", safeStatus);
+  }
+
+  const [{ data, error: ordersError, count }, pendingResult] = await Promise.all([
+    orderRequest.range(range.from, range.to),
+    supabase
+      .from("orders")
+      .select("id", { count: "exact", head: true })
+      .eq("restaurant_id", restaurant.id)
+      .eq("status", "pending"),
+  ]);
+
+  return {
+    restaurant,
+    orders: data ?? [],
+    count: count ?? 0,
+    pendingCount: pendingResult.count ?? 0,
+    page: range.page,
+    pageSize: range.pageSize,
+    status: safeStatus,
+    error: ordersError ?? pendingResult.error,
+    isConfigured,
+  };
 }
 
 export async function advanceOrderStatus(formData) {

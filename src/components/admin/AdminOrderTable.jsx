@@ -1,7 +1,9 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { listOrderLines, listOrders } from "@/services/adminOrderService";
+import { useEffect, useState } from "react";
+import { PaginationControls } from "@/components/PaginationControls";
+import { TableEmptyStateRow, TableSkeletonRows } from "@/components/TableStateRows";
+import { listOrderLines, listOrderRestaurants, listOrders } from "@/services/adminOrderService";
 
 const statuses = [
   "pending",
@@ -55,6 +57,10 @@ export function AdminOrderTable() {
   const [orderLines, setOrderLines] = useState([]);
   const [statusFilter, setStatusFilter] = useState("all");
   const [restaurantFilter, setRestaurantFilter] = useState("all");
+  const [restaurants, setRestaurants] = useState([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingLines, setLoadingLines] = useState(false);
   const [error, setError] = useState(null);
@@ -65,13 +71,15 @@ export function AdminOrderTable() {
 
     async function loadOrders() {
       setLoading(true);
-      const result = await listOrders();
+      const result = await listOrders({ page, status: statusFilter, restaurantId: restaurantFilter });
 
       if (!mounted) {
         return;
       }
 
       setOrders(result.data);
+      setPageSize(result.pageSize);
+      setTotal(result.count);
       setError(result.error);
       setLoading(false);
     }
@@ -81,29 +89,37 @@ export function AdminOrderTable() {
     return () => {
       mounted = false;
     };
+  }, [page, restaurantFilter, statusFilter]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadRestaurants() {
+      const result = await listOrderRestaurants();
+
+      if (!mounted) {
+        return;
+      }
+
+      setRestaurants(result.data);
+    }
+
+    loadRestaurants();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  const restaurants = useMemo(() => {
-    const unique = new Map();
-    orders.forEach((order) => {
-      if (order.restaurant?.id) {
-        unique.set(order.restaurant.id, order.restaurant.name);
-      }
-    });
-    return Array.from(unique, ([id, name]) => ({ id, name })).sort((a, b) =>
-      a.name.localeCompare(b.name),
-    );
-  }, [orders]);
+  function updateStatusFilter(value) {
+    setStatusFilter(value);
+    setPage(1);
+  }
 
-  const filteredOrders = useMemo(() => {
-    return orders.filter((order) => {
-      const matchesStatus = statusFilter === "all" || order.status === statusFilter;
-      const matchesRestaurant =
-        restaurantFilter === "all" || String(order.restaurant?.id) === restaurantFilter;
-
-      return matchesStatus && matchesRestaurant;
-    });
-  }, [orders, restaurantFilter, statusFilter]);
+  function updateRestaurantFilter(value) {
+    setRestaurantFilter(value);
+    setPage(1);
+  }
 
   async function selectOrder(order) {
     setSelectedOrder(order);
@@ -128,7 +144,7 @@ export function AdminOrderTable() {
       <div className="grid gap-3 md:grid-cols-2">
         <select
           value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value)}
+          onChange={(event) => updateStatusFilter(event.target.value)}
           className="rounded-md border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white outline-none transition focus:border-emerald-300/70"
         >
           <option value="all">All statuses</option>
@@ -140,7 +156,7 @@ export function AdminOrderTable() {
         </select>
         <select
           value={restaurantFilter}
-          onChange={(event) => setRestaurantFilter(event.target.value)}
+          onChange={(event) => updateRestaurantFilter(event.target.value)}
           className="rounded-md border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white outline-none transition focus:border-emerald-300/70"
         >
           <option value="all">All restaurants</option>
@@ -168,22 +184,18 @@ export function AdminOrderTable() {
               </thead>
               <tbody className="divide-y divide-white/10">
                 {loading ? (
-                  <tr>
-                    <td colSpan="6" className="px-4 py-8 text-center text-slate-400">
-                      Loading orders...
-                    </td>
-                  </tr>
+                  <TableSkeletonRows columns={6} />
                 ) : null}
 
-                {!loading && filteredOrders.length === 0 ? (
-                  <tr>
-                    <td colSpan="6" className="px-4 py-8 text-center text-slate-400">
-                      No orders found.
-                    </td>
-                  </tr>
+                {!loading && orders.length === 0 ? (
+                  <TableEmptyStateRow
+                    colSpan={6}
+                    title="No orders found"
+                    description="Try a different status or restaurant filter."
+                  />
                 ) : null}
 
-                {filteredOrders.map((order) => (
+                {orders.map((order) => (
                   <tr
                     key={order.id}
                     className="cursor-pointer transition hover:bg-white/[0.03]"
@@ -212,6 +224,7 @@ export function AdminOrderTable() {
               </tbody>
             </table>
           </div>
+          <PaginationControls page={page} pageSize={pageSize} total={total} onPageChange={setPage} disabled={loading} />
         </div>
 
         <aside className="rounded-lg border border-white/10 bg-white/[0.04] p-5">

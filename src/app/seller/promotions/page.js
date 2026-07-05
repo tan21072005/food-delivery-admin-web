@@ -1,32 +1,50 @@
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
+import { EmptyState } from "@/components/EmptyState";
+import { OfferFilters } from "@/components/OfferFilters";
 import { OfferForm } from "@/components/seller/OfferForm";
 import { OfferTable } from "@/components/seller/OfferTable";
+import { UrlPaginationControls } from "@/components/UrlPaginationControls";
 import { createOffer, deactivateOffer, getSellerOffers, updateOffer } from "@/services/offerService";
 
 export const metadata = {
   title: "Seller Promotions | Food Delivery Admin",
 };
 
-export default async function SellerPromotionsPage() {
-  const { restaurant, offers, error, isConfigured } = await getSellerOffers();
+function redirectWithNotice(type, message) {
+  const params = new URLSearchParams({ [type]: message });
+  redirect(`/seller/promotions?${params.toString()}`);
+}
+
+export default async function SellerPromotionsPage({ searchParams }) {
+  const params = await searchParams;
+  const requestedPage = Number(params?.page ?? 1);
+  const requestedStatus = params?.status ?? "all";
+  const { restaurant, offers, count, page, pageSize, status, error, isConfigured } = await getSellerOffers({
+    page: requestedPage,
+    status: requestedStatus,
+  });
 
   async function createAction(formData) {
     "use server";
-    await createOffer(formData);
+    const result = await createOffer(formData);
     revalidatePath("/seller/promotions");
+    redirectWithNotice(result.ok ? "success" : "error", result.message);
   }
 
   async function updateAction(formData) {
     "use server";
-    await updateOffer(formData);
+    const result = await updateOffer(formData);
     revalidatePath("/seller/promotions");
+    redirectWithNotice(result.ok ? "success" : "error", result.message);
   }
 
   async function deactivateAction(formData) {
     "use server";
-    await deactivateOffer(formData);
+    const result = await deactivateOffer(formData);
     revalidatePath("/seller/promotions");
+    redirectWithNotice(result.ok ? "success" : "error", result.message);
   }
 
   return (
@@ -47,6 +65,18 @@ export default async function SellerPromotionsPage() {
         </div>
       ) : null}
 
+      {params?.error ? (
+        <div className="mb-5 rounded-md border border-rose-300/20 bg-rose-300/10 p-4 text-sm text-rose-100">
+          {params.error}
+        </div>
+      ) : null}
+
+      {params?.success ? (
+        <div className="mb-5 rounded-md border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm text-emerald-100">
+          {params.success}
+        </div>
+      ) : null}
+
       {restaurant ? (
         <div className="space-y-6">
           <section className="rounded-lg border border-white/10 bg-white/[0.04] p-6">
@@ -59,13 +89,24 @@ export default async function SellerPromotionsPage() {
 
           <section className="space-y-4">
             <h2 className="text-lg font-semibold text-white">Offers</h2>
+            <OfferFilters basePath="/seller/promotions" status={status} />
             <OfferTable offers={offers} updateAction={updateAction} deactivateAction={deactivateAction} />
+            <UrlPaginationControls
+              basePath="/seller/promotions"
+              searchParams={{ status: status === "all" ? "" : status }}
+              page={page}
+              pageSize={pageSize}
+              total={count}
+            />
           </section>
         </div>
       ) : (
-        <div className="rounded-lg border border-white/10 bg-white/[0.04] p-6 text-sm text-slate-300">
-          No restaurant profile was found for this seller.
-        </div>
+        <EmptyState
+          title="No restaurant profile found"
+          description="Promotions need an approved seller restaurant before offers can be created."
+          actionHref="/seller/apply"
+          actionLabel="Apply as seller"
+        />
       )}
     </AppShell>
   );

@@ -16,6 +16,9 @@ begin
   if not exists (select 1 from pg_type where typname = 'restaurant_status') then
     create type public.restaurant_status as enum ('active', 'inactive', 'suspended');
   end if;
+  if not exists (select 1 from pg_type where typname = 'seller_application_status') then
+    create type public.seller_application_status as enum ('pending', 'approved', 'rejected');
+  end if;
   if not exists (select 1 from pg_type where typname = 'catalog_status') then
     create type public.catalog_status as enum ('active', 'inactive');
   end if;
@@ -128,6 +131,23 @@ create table if not exists public.restaurants (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (owner_user_id, name)
+);
+
+create table if not exists public.seller_applications (
+  id bigserial primary key,
+  restaurant_name text not null,
+  owner_name text not null,
+  email text not null,
+  phone_number text,
+  address text not null,
+  description text,
+  status public.seller_application_status not null default 'pending',
+  admin_note text,
+  restaurant_id bigint references public.restaurants(id) on delete set null,
+  reviewed_by_user_id bigint references public.users(id) on delete set null,
+  reviewed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 create table if not exists public.dish_categories (
@@ -319,6 +339,9 @@ create index if not exists restaurants_cuisine_idx on public.restaurants (cuisin
 create index if not exists restaurants_status_open_idx on public.restaurants (status, is_open);
 create index if not exists restaurants_location_idx on public.restaurants (latitude, longitude);
 
+create index if not exists seller_applications_status_created_idx on public.seller_applications (status, created_at desc);
+create index if not exists seller_applications_email_idx on public.seller_applications (lower(email));
+
 create index if not exists dish_categories_restaurant_idx on public.dish_categories (restaurant_id, sort_order);
 
 create index if not exists menu_items_restaurant_idx on public.menu_items (restaurant_id);
@@ -355,6 +378,7 @@ begin
     'delivery_addresses',
     'cuisines',
     'restaurants',
+    'seller_applications',
     'dish_categories',
     'menu_items',
     'menu_option_groups',
@@ -547,6 +571,7 @@ alter table public.users enable row level security;
 alter table public.delivery_addresses enable row level security;
 alter table public.cuisines enable row level security;
 alter table public.restaurants enable row level security;
+alter table public.seller_applications enable row level security;
 alter table public.dish_categories enable row level security;
 alter table public.menu_items enable row level security;
 alter table public.menu_option_groups enable row level security;
@@ -575,6 +600,8 @@ grant select on public.menu_option_choices to anon, authenticated;
 grant select on public.menus_compat to anon, authenticated;
 
 grant insert, update, delete on public.restaurants to authenticated;
+grant insert on public.seller_applications to anon, authenticated;
+grant select, update on public.seller_applications to authenticated;
 grant insert, update, delete on public.dish_categories to authenticated;
 grant insert, update, delete on public.menu_items to authenticated;
 grant insert, update, delete on public.menu_option_groups to authenticated;
@@ -590,6 +617,7 @@ grant select on public.order_lines to authenticated;
 grant select on public.order_status_history to authenticated;
 grant select on public.payments to authenticated;
 
+grant usage, select on sequence public.seller_applications_id_seq to anon, authenticated;
 grant usage, select on all sequences in schema public to authenticated;
 
 drop policy if exists "users read own profile" on public.users;
@@ -623,6 +651,52 @@ on public.restaurants for all
 to authenticated
 using (owner_user_id = (select public.current_app_user_id()))
 with check (owner_user_id = (select public.current_app_user_id()));
+
+drop policy if exists "public submit seller applications" on public.seller_applications;
+create policy "public submit seller applications"
+on public.seller_applications for insert
+to anon, authenticated
+with check (
+  status = 'pending'
+  and admin_note is null
+  and restaurant_id is null
+  and reviewed_by_user_id is null
+  and reviewed_at is null
+);
+
+drop policy if exists "admins read seller applications" on public.seller_applications;
+create policy "admins read seller applications"
+on public.seller_applications for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.users u
+    where u.id = (select public.current_app_user_id())
+      and u.role = 'admin'
+  )
+);
+
+drop policy if exists "admins review seller applications" on public.seller_applications;
+create policy "admins review seller applications"
+on public.seller_applications for update
+to authenticated
+using (
+  exists (
+    select 1
+    from public.users u
+    where u.id = (select public.current_app_user_id())
+      and u.role = 'admin'
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.users u
+    where u.id = (select public.current_app_user_id())
+      and u.role = 'admin'
+  )
+);
 
 drop policy if exists "public read active dish categories" on public.dish_categories;
 create policy "public read active dish categories"
@@ -1405,8 +1479,57 @@ revoke all on function public.checkout_cart_v3(bigint, bigint, public.app_paymen
 grant execute on function public.checkout_cart_v3(bigint, bigint, public.app_payment_method, text) to authenticated;
 
 -- ============================================================
--- 13. STORAGE: AVATARS
+-- 13. STORAGE: RESTAURANT MEDIA + AVATARS
 -- ============================================================
+insert into storage.buckets (id, name, public)
+values ('restaurant-media', 'restaurant-media', true)
+on conflict (id) do update
+set public = excluded.public;
+
+drop policy if exists "restaurant media public read" on storage.objects;
+create policy "restaurant media public read"
+on storage.objects for select
+to anon, authenticated
+using (bucket_id = 'restaurant-media');
+
+drop policy if exists "restaurant owners upload own media" on storage.objects;
+create policy "restaurant owners upload own media"
+on storage.objects for insert
+to authenticated
+with check (
+  bucket_id = 'restaurant-media'
+  and owner = (select auth.uid())
+  and exists (
+    select 1
+    from public.restaurants r
+    join public.users u on u.id = r.owner_user_id
+    where u.auth_uid = (select auth.uid())
+      and r.id::text = (storage.foldername(name))[1]
+  )
+);
+
+drop policy if exists "restaurant owners update own media" on storage.objects;
+create policy "restaurant owners update own media"
+on storage.objects for update
+to authenticated
+using (
+  bucket_id = 'restaurant-media'
+  and owner = (select auth.uid())
+)
+with check (
+  bucket_id = 'restaurant-media'
+  and owner = (select auth.uid())
+);
+
+drop policy if exists "restaurant owners delete own media" on storage.objects;
+create policy "restaurant owners delete own media"
+on storage.objects for delete
+to authenticated
+using (
+  bucket_id = 'restaurant-media'
+  and owner = (select auth.uid())
+);
+
 insert into storage.buckets (id, name, public)
 values ('avatars', 'avatars', true)
 on conflict (id) do update

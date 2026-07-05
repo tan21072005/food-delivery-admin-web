@@ -32,22 +32,48 @@ function missingConfigResult(data) {
   };
 }
 
-export async function listRestaurants() {
+const DEFAULT_PAGE_SIZE = 10;
+
+function getPageRange(page, pageSize = DEFAULT_PAGE_SIZE) {
+  const safePage = Math.max(1, Number(page) || 1);
+  const safePageSize = Math.max(1, Number(pageSize) || DEFAULT_PAGE_SIZE);
+  const from = (safePage - 1) * safePageSize;
+  return { from, to: from + safePageSize - 1, page: safePage, pageSize: safePageSize };
+}
+
+export async function listRestaurants({ page = 1, pageSize = DEFAULT_PAGE_SIZE, query = "", status = "all" } = {}) {
   const supabase = createClient();
 
   if (!supabase) {
-    return missingConfigResult([]);
+    return { ...missingConfigResult([]), count: 0, page, pageSize };
   }
 
-  const { data, error } = await supabase
+  const range = getPageRange(page, pageSize);
+  let request = supabase
     .from("restaurants")
-    .select(restaurantColumns)
+    .select(restaurantColumns, { count: "exact" })
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
 
+  const normalizedQuery = query.trim();
+
+  if (normalizedQuery) {
+    const escapedQuery = normalizedQuery.replaceAll(",", " ");
+    request = request.or(`name.ilike.%${escapedQuery}%,address.ilike.%${escapedQuery}%,phone_number.ilike.%${escapedQuery}%`);
+  }
+
+  if (status !== "all") {
+    request = request.eq("status", status);
+  }
+
+  const { data, error, count } = await request.range(range.from, range.to);
+
   return {
     data: data ?? [],
+    count: count ?? 0,
     error: error?.message ?? null,
+    page: range.page,
+    pageSize: range.pageSize,
   };
 }
 

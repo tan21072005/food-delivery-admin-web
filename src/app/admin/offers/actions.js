@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import {
   createAdminOffer,
   deactivateAdminOffer,
@@ -12,7 +13,8 @@ const adminOffersPath = "/admin/offers";
 async function runOfferAction(action, formData) {
   const result = await action(formData);
   revalidatePath(adminOffersPath);
-  return result;
+  const params = new URLSearchParams({ [result.ok ? "success" : "error"]: result.message });
+  redirect(`${adminOffersPath}?${params.toString()}`);
 }
 
 export async function createOfferAction(formData) {

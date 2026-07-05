@@ -1,12 +1,15 @@
 import { MenuForm } from "@/components/seller/MenuForm";
+import { ConfirmSubmitButton } from "@/components/ConfirmSubmitButton";
+import { EmptyState } from "@/components/EmptyState";
 import { formatVnd } from "@/services/menuService";
 
 export function MenuTable({ items, categories, updateAction, deactivateAction }) {
   if (items.length === 0) {
     return (
-      <div className="rounded-lg border border-white/10 bg-white/[0.04] p-6 text-sm text-slate-300">
-        No menu items yet.
-      </div>
+      <EmptyState
+        title="No menu items found"
+        description="Create the first item above, or adjust the filters to see more of this restaurant menu."
+      />
     );
   }
 
@@ -43,9 +46,13 @@ export function MenuTable({ items, categories, updateAction, deactivateAction })
                 </details>
                 <form action={deactivateAction}>
                   <input type="hidden" name="id" value={item.id} />
-                  <button type="submit" className="text-rose-300 transition hover:text-rose-200">
+                  <ConfirmSubmitButton
+                    confirmMessage={`Set ${item.name} inactive?`}
+                    pendingLabel="Updating..."
+                    className="text-rose-300 transition hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
                     Set inactive
-                  </button>
+                  </ConfirmSubmitButton>
                 </form>
               </td>
             </tr>

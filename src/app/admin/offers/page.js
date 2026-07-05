@@ -1,6 +1,8 @@
 import { AppShell } from "@/components/AppShell";
 import { OfferForm } from "@/components/admin/OfferForm";
+import { OfferFilters } from "@/components/OfferFilters";
 import { OfferTable } from "@/components/admin/OfferTable";
+import { UrlPaginationControls } from "@/components/UrlPaginationControls";
 import { createOfferAction, deactivateOfferAction, updateOfferAction } from "@/app/admin/offers/actions";
 import { getAdminOffers } from "@/services/offerService";
 
@@ -8,8 +10,16 @@ export const metadata = {
   title: "Offers | Food Delivery Admin",
 };
 
-export default async function AdminOffersPage() {
-  const { offers, restaurants, error, isConfigured } = await getAdminOffers();
+export default async function AdminOffersPage({ searchParams }) {
+  const params = await searchParams;
+  const requestedPage = Number(params?.page ?? 1);
+  const requestedStatus = params?.status ?? "all";
+  const requestedRestaurantId = params?.restaurant ?? "all";
+  const { offers, restaurants, count, page, pageSize, status, restaurantId, error, isConfigured } = await getAdminOffers({
+    page: requestedPage,
+    status: requestedStatus,
+    restaurantId: requestedRestaurantId,
+  });
 
   return (
     <AppShell
@@ -29,14 +39,43 @@ export default async function AdminOffersPage() {
         </div>
       ) : null}
 
+      {params?.error ? (
+        <div className="mb-5 rounded-md border border-rose-300/20 bg-rose-300/10 p-4 text-sm text-rose-100">
+          {params.error}
+        </div>
+      ) : null}
+
+      {params?.success ? (
+        <div className="mb-5 rounded-md border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm text-emerald-100">
+          {params.success}
+        </div>
+      ) : null}
+
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <section className="space-y-4">
           <h2 className="text-lg font-semibold text-white">Offers</h2>
+          <OfferFilters
+            basePath="/admin/offers"
+            status={status}
+            restaurantId={restaurantId}
+            restaurants={restaurants}
+            showRestaurants
+          />
           <OfferTable
             offers={offers}
             restaurants={restaurants}
             updateAction={updateOfferAction}
             deactivateAction={deactivateOfferAction}
+          />
+          <UrlPaginationControls
+            basePath="/admin/offers"
+            searchParams={{
+              status: status === "all" ? "" : status,
+              restaurant: restaurantId === "all" ? "" : restaurantId,
+            }}
+            page={page}
+            pageSize={pageSize}
+            total={count}
           />
         </section>
 

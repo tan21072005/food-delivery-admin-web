@@ -1,4 +1,6 @@
 import { OfferForm } from "@/components/seller/OfferForm";
+import { ConfirmSubmitButton } from "@/components/ConfirmSubmitButton";
+import { EmptyState } from "@/components/EmptyState";
 import { formatDiscount, formatVnd } from "@/services/offerService";
 
 function formatDate(value) {
@@ -8,9 +10,10 @@ function formatDate(value) {
 export function OfferTable({ offers, updateAction, deactivateAction }) {
   if (offers.length === 0) {
     return (
-      <div className="rounded-lg border border-white/10 bg-white/[0.04] p-6 text-sm text-slate-300">
-        No offers yet.
-      </div>
+      <EmptyState
+        title="No offers found"
+        description="Create a promotion above, or clear the filters to review inactive offers."
+      />
     );
   }
 
@@ -50,9 +53,14 @@ export function OfferTable({ offers, updateAction, deactivateAction }) {
                 </details>
                 <form action={deactivateAction}>
                   <input type="hidden" name="id" value={offer.id} />
-                  <button type="submit" className="text-rose-300 transition hover:text-rose-200">
+                  <ConfirmSubmitButton
+                    confirmMessage={`Set ${offer.title} inactive?`}
+                    pendingLabel="Updating..."
+                    disabled={offer.status === "inactive"}
+                    className="text-rose-300 transition hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
                     Set inactive
-                  </button>
+                  </ConfirmSubmitButton>
                 </form>
               </td>
             </tr>

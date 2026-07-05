@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getHomePathForRole, getUserRole } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/browser";
@@ -16,6 +17,7 @@ export function LoginForm() {
 
   const redirectTo = searchParams.get("redirectTo");
   const authError = searchParams.get("error");
+  const status = searchParams.get("status");
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -69,9 +71,21 @@ export function LoginForm() {
             Use a Supabase Auth user with role stored in app_metadata.role.
           </p>
 
-          {authError === "unauthorized" ? (
+          {authError === "session_expired" ? (
             <p className="mt-5 rounded-md border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
-              Your account does not have permission to open that dashboard.
+              Your session expired. Sign in again to continue.
+            </p>
+          ) : null}
+
+          {status === "signed-out" ? (
+            <p className="mt-5 rounded-md border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">
+              You have been signed out.
+            </p>
+          ) : null}
+
+          {status === "signed-up" ? (
+            <p className="mt-5 rounded-md border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">
+              Account confirmed. Sign in to continue.
             </p>
           ) : null}
 
@@ -108,6 +122,15 @@ export function LoginForm() {
           </button>
 
           {message ? <p className="mt-4 text-sm text-rose-200">{message}</p> : null}
+
+          <div className="mt-5 flex flex-col gap-2 text-sm text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+            <Link href="/signup" className="font-medium text-emerald-300 transition hover:text-emerald-200">
+              Create customer account
+            </Link>
+            <Link href="/seller/apply" className="font-medium text-emerald-300 transition hover:text-emerald-200">
+              Apply as seller
+            </Link>
+          </div>
         </form>
       </section>
     </main>

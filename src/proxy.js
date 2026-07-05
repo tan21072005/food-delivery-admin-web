@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { canAccessPath, getUserRole } from "@/lib/auth/roles";
+import { canAccessPath, getUserRole, isPublicAppPath } from "@/lib/auth/roles";
 import { updateSession } from "@/lib/supabase/middleware";
 
 export async function proxy(request) {
@@ -10,10 +10,15 @@ export async function proxy(request) {
     return response;
   }
 
+  if (isPublicAppPath(pathname)) {
+    return response;
+  }
+
   if (!user) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirectTo", pathname);
+    url.searchParams.set("error", "session_expired");
     return NextResponse.redirect(url);
   }
 
@@ -21,8 +26,8 @@ export async function proxy(request) {
 
   if (!canAccessPath(role, pathname)) {
     const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    url.searchParams.set("error", "unauthorized");
+    url.pathname = "/unauthorized";
+    url.searchParams.set("from", pathname);
     return NextResponse.redirect(url);
   }
 
